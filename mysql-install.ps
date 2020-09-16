@@ -1,0 +1,53 @@
+netsh winhttp set proxy "16.85.88.10:8080"
+$mySqlRoot = "C:\ProgramFiles\MySQL"
+$mySqlPath = "C:\ProgramFiles\MySQL\MySQL_Server_5.7"
+$mySqlIniPath = "$mySqlPath\my.ini"
+$mySqlDataPath = "$mySqlPath\data"
+$mySqlTemp = "C:\Users\Administrator\Downloads"
+$mySqlServiceName = "MySQL57"
+$mySqlRootPassword = 'Password12!'
+$url = 'https://dev.mysql.com/get/Downloads/MySQL-5.7/mysql-5.7.27-winx64.zip'
+
+
+Write-Host "Installing MySQL Server 5.7" -ForegroundColor Cyan
+
+Write-Host "Downloading MySQL..."
+$zipPath = "$mySqlTemp\$(Split-Path -Path $url -Leaf)"
+echo $zipPath
+[Net.ServicePointManager]::SecurityProtocol = "tls12, tls11, tls"
+$webproxy = New-Object System.Net.WebProxy("http://16.85.88.10:8080",$true)
+$web = New-Object System.Net.WebClient
+$web.Proxy = $webproxy
+$web.DownloadFile($url, $zipPath)
+
+Write-Host "Unpacking..."
+New-Item $mySqlRoot -ItemType Directory -Force | Out-Null
+New-Item $mySqlPath -ItemType Directory -Force | Out-Null
+$ExtractShell = New-Object -ComObject Shell.Application 
+$Files = $ExtractShell.Namespace($zipPath).Items() 
+$ExtractShell.NameSpace($mySqlPath).CopyHere($Files)
+
+Write-Host "Installing MySQL..."
+New-Item $mySqlDataPath -ItemType Directory -Force | Out-Null
+
+@"
+[mysqld]
+basedir=$($mySqlPath.Replace("\","\\"))
+datadir=$($mySqlDataPath.Replace("\","\\"))
+"@ | Out-File $mySqlIniPath -Force -Encoding ASCII
+
+Write-Host "Initializing MySQL..."
+cmd /c '"$mySqlPath\mysql-5.7.27-winx64\bin\mysqld" --defaults-file="$mySqlIniPath" --initialize-insecure'
+
+Write-Host "Installing MySQL as a service..."
+cmd /c '"$mySqlPath\mysql-5.7.27-winx64\bin\mysqld" --install $mySqlServiceName"'
+Start-Service $mySqlServiceName
+Set-Service -Name $mySqlServiceName -StartupType Manual
+
+Write-Host "Setting root password..."
+cmd /c "`"$mySqlPath\mysql-5.7.27-winx64\bin\mysql`" -u root --skip-password -e `"ALTER USER 'root'@'localhost' IDENTIFIED BY '$mySqlRootPassword';`""
+
+Write-Host "Verifying connection..."
+(cmd /c '"$mySqlPath\mysql-5.7.27-winx64\bin\mysql" -u root --password="$mySqlRootPassword" -e "SHOW DATABASES;" 2>&1')
+
+Write-Host "MySQL Server installed" -ForegroundColor Green
